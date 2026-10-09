@@ -54,10 +54,13 @@ configuration and app settings. They share what exists once per user: the `~/.cl
 Claude in Chrome, and on Windows the Store app's startup entry. The README lists how to keep your
 regular Claude in charge of these.
 
-On Windows, the browser finds Claude through one registry entry per user
-(`HKCU\Software\<browser>\NativeMessagingHosts\com.anthropic.claude_browser_extension`), and each
-Claude instance writes its own data folder there. While a profile is open, its watcher points that
-entry back to the regular Claude whenever a profile has taken it.
+Browsers find Claude through one native-messaging entry per user
+(`com.anthropic.claude_browser_extension`): a registry key on Windows, a JSON manifest in each
+browser's `NativeMessagingHosts` folder on macOS and Linux. Each Claude instance writes its own data
+folder there. Profile launchers run `multi-claude open`, which starts a small watcher for as long as
+the profile is open; whenever a profile has taken the entry, the watcher points it back to the
+regular Claude, in Chrome, Edge, Brave and Chromium. It never touches the entry if the regular Claude
+has not paired.
 
 ## Installation
 

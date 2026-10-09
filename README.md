@@ -97,10 +97,12 @@ regular Claude in charge of them:
   first gets it. In each profile's settings, turn the shortcut off or give it another key.
 - **Open at login.** Leave this setting alone in profiles. On Windows the Store app has a single
   startup entry, so turning it off in a profile can turn it off for your regular Claude too.
-- **Claude in Chrome** pairs with one Claude per computer, and every instance tries to claim it. On
-  Windows, multi-claude keeps it on your regular Claude automatically (`multi-claude doctor` shows
-  the pairing). On macOS and Linux, if the extension talks to a profile, quit the profiles and toggle
-  Claude in Chrome off and on in your regular Claude.
+- **Claude in Chrome** pairs with one Claude per computer, and every instance tries to claim it.
+  multi-claude keeps it on your regular Claude, in Chrome, Edge, Brave and Chromium, while profiles
+  run. `multi-claude doctor` shows the pairing.
+- **Updates restart every Claude.** An idle Claude may install an app update on its own, and updating
+  closes all Claude windows, including the one you are working in. Quit the profiles you are not
+  using.
 - **Tray icons.** Every instance shows the same Claude icon in the system tray (or menu bar), with the
   same tooltip. The taskbar buttons and launchers are the ones that tell profiles apart.
 - **Notifications** from a profile show up as "Claude", and clicking one may bring up your regular

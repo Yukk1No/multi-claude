@@ -29,14 +29,29 @@ check 'invalid color exits 64'              'exit_is 64 add Work --color banana'
 check 'missing color exits 64'              'exit_is 64 add Work --color'
 check 'extra argument exits 64'             'exit_is 64 add Work extra'
 check 'add creates the desktop entry'       'exit_is 0 add Work --color blue && [ -f "$entry" ]'
-check 'entry uses its own data folder'      'grep -q -- "--user-data-dir=$XDG_CONFIG_HOME/Claude-Work" "$entry"'
-check 'entry drops field codes'             '! grep -q "%U" "$entry"'
-check 'entry id matches its window class'   'grep -q "^StartupWMClass=multi-claude-work$" "$entry" && grep -q -- "--class=multi-claude-work" "$entry"'
+check 'entry opens the profile through multi-claude' 'grep -q "^Exec=\".*/multi-claude\" open Work$" "$entry"'
+check 'entry id matches its window class'   'grep -q "^StartupWMClass=multi-claude-work$" "$entry"'
 check 'icon was recolored'                  '[ -f "$XDG_DATA_HOME/multi-claude/profiles/Work/icon.png" ]'
 check 'same name in another case is refused' 'exit_is 64 add work'
-check 'list shows the profile'              '"$cli" list | grep -q "^Work "'
+check 'list shows the profile'              'grep -q "^Work " <<<"$("$cli" list)"'
 check 'removing an unknown profile exits 1' 'exit_is 1 remove Nope'
 check 'remove finds the profile in any case' 'exit_is 0 remove work && [ ! -f "$entry" ] && [ ! -d "$XDG_DATA_HOME/multi-claude/profiles/Work" ]'
+
+# Claude in Chrome: a profile took the browser's pairing; it must go back to the regular Claude.
+main_host=$XDG_CONFIG_HOME/Claude/ChromeNativeHost/chrome-native-host
+profile_host=$XDG_CONFIG_HOME/Claude-Work/ChromeNativeHost/chrome-native-host
+chrome=$XDG_CONFIG_HOME/google-chrome/NativeMessagingHosts/com.anthropic.claude_browser_extension.json
+edge=$XDG_CONFIG_HOME/microsoft-edge/NativeMessagingHosts/com.anthropic.claude_browser_extension.json
+manifest() { printf '{\n  "name": "com.anthropic.claude_browser_extension",\n  "path": "%s",\n  "type": "stdio"\n}\n' "$1"; }
+mkdir -p "$(dirname "$main_host")" "$(dirname "$chrome")" "$(dirname "$edge")"
+touch "$main_host"
+manifest "$profile_host" > "$chrome"; manifest "$profile_host" > "$edge"
+check 'doctor shows a profile holding the pairing' 'grep -q "google-chrome: profile Work, microsoft-edge: profile Work" <<<"$("$cli" doctor)"'
+check 'pairing goes back to the regular Claude'   'exit_is 0 _repair-pairing && grep -qF "\"path\": \"$main_host\"" "$chrome" && grep -qF "\"path\": \"$main_host\"" "$edge"'
+check 'doctor shows the regular Claude'           'grep -q "google-chrome: regular Claude" <<<"$("$cli" doctor)"'
+rm "$main_host"; manifest "$profile_host" > "$chrome"
+check 'pairing is left alone if the regular Claude never paired' 'exit_is 0 _repair-pairing && grep -qF "\"path\": \"$profile_host\"" "$chrome"'
+
 check 'uninstall cleans up'                 'exit_is 0 add Two && exit_is 0 uninstall && [ ! -d "$XDG_DATA_HOME/multi-claude" ] && ! ls "$XDG_DATA_HOME/applications" | grep -q multi-claude'
 if [ $failed -eq 0 ]; then echo 'all tests passed'; fi
 exit $failed

@@ -36,6 +36,60 @@ is_running() { command -v pgrep >/dev/null && pgrep -f -- "--user-data-dir=$(dat
 check_name() { [[ $1 =~ ^[A-Za-z0-9-]{1,24}$ ]] || fail "Profile name: letters, digits and dashes, up to 24 characters (e.g. Work)." 64; }
 entry_key()  { grep -m1 "^$2=" "$1" | cut -d= -f2-; }
 
+# Claude in Chrome: each browser keeps one manifest naming the Claude it talks to, and every Claude
+# instance writes its own data folder into it. Keep it on the regular Claude.
+BROWSERS=(google-chrome microsoft-edge BraveSoftware/Brave-Browser chromium)
+manifest_of() { echo "$CONFIG/$1/NativeMessagingHosts/com.anthropic.claude_browser_extension.json"; }
+host_path()   { sed -n 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -n1; }
+
+repair_pairing() {
+  local browser manifest main
+  for browser in "${BROWSERS[@]}"; do
+    manifest=$(manifest_of "$browser")
+    [[ -f $manifest ]] || continue
+    main=$(host_path "$manifest" | sed -E 's#/Claude-[A-Za-z0-9-]+/#/Claude/#')
+    # Only when a profile holds it, and the regular Claude has a host to point back to.
+    if [[ $main != "$(host_path "$manifest")" && -e $main ]]; then
+      sed -E 's#/Claude-[A-Za-z0-9-]+/#/Claude/#g' "$manifest" > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"
+    fi
+  done
+}
+
+pairing() {
+  local browser manifest out=""
+  for browser in "${BROWSERS[@]}"; do
+    manifest=$(manifest_of "$browser")
+    [[ -f $manifest ]] || continue
+    if [[ $(host_path "$manifest") =~ /Claude-([A-Za-z0-9-]+)/ ]]; then
+      out+="${browser##*/}: profile ${BASH_REMATCH[1]}, "
+    else
+      out+="${browser##*/}: regular Claude, "
+    fi
+  done
+  if [[ -n $out ]]; then echo "${out%, }"; else echo "not set up"; fi
+}
+
+# Started by `open` in the background: keeps the pairing on the regular Claude while the profile
+# runs, then exits. One per profile.
+GUARD_LOCK=""
+cmd_guard() {
+  local name=$1 waited=0
+  GUARD_LOCK=${TMPDIR:-/tmp}/multi-claude-$(id -u)-$name.lock
+  if ! mkdir "$GUARD_LOCK" 2>/dev/null; then
+    if kill -0 "$(cat "$GUARD_LOCK/pid" 2>/dev/null)" 2>/dev/null; then return 0; fi
+    rm -rf "$GUARD_LOCK"; mkdir "$GUARD_LOCK" || return 0
+  fi
+  echo $$ > "$GUARD_LOCK/pid"
+  trap 'rm -rf "$GUARD_LOCK"' EXIT
+  if command -v pgrep >/dev/null; then
+    while ! is_running "$name" && (( waited++ < 60 )); do sleep 1; done
+    while is_running "$name"; do repair_pairing; sleep 3; done
+  else
+    for _ in $(seq 40); do repair_pairing; sleep 3; done
+  fi
+  repair_pairing
+}
+
 # An existing profile's spelling, so `open work` finds profile "Work".
 canonical() {
   local name
@@ -70,7 +124,7 @@ claude_icon() {
 }
 
 cmd_add() {
-  local name=$1 color=$2 hex entry launch icon dir existing
+  local name=$1 color=$2 hex entry icon dir existing
   check_name "$name"
   hex=${PALETTE[${color,,}]:-${color#\#}}
   [[ $hex =~ ^[0-9A-Fa-f]{6}$ ]] || fail "Unknown color '$color'. Use $COLORS or a hex value like C0392B." 64
@@ -79,7 +133,6 @@ cmd_add() {
     [[ $existing == "$name" ]] || fail "A profile named '$existing' already exists; names are not case-sensitive." 64
   fi
   entry=$(claude_entry) || fail "$NOT_FOUND"
-  launch=$(claude_launch "$entry")
   icon=$(claude_icon "$entry") || fail "Could not find Claude's icon ($(entry_key "$entry" Icon))."
   command -v python3 >/dev/null || fail "python3 is required to color the icon."
 
@@ -91,7 +144,7 @@ cmd_add() {
 Type=Application
 Name=Claude $name
 Comment=Claude Desktop - $name
-Exec=$launch "--user-data-dir=$(data_dir "$name")" --class=$(app_id "$name")
+Exec="$HERE/multi-claude" open $name
 Icon=$dir/icon.png
 StartupWMClass=$(app_id "$name")
 Categories=Office;Utility;
@@ -122,7 +175,9 @@ cmd_open() {
   # Split Exec like a desktop launcher would, so quoted paths ("/opt/Claude Desktop/claude") survive.
   mapfile -t argv < <(xargs -n1 printf '%s\n' <<<"$(claude_launch "$entry")")
   command -v "${argv[0]}" >/dev/null || fail "Cannot run Claude: ${argv[0]}"
+  repair_pairing
   nohup "${argv[@]}" "--user-data-dir=$(data_dir "$1")" "--class=$(app_id "$1")" >/dev/null 2>&1 &
+  nohup "$HERE/multi-claude" _guard "$1" >/dev/null 2>&1 &
 }
 
 cmd_remove() {
@@ -130,6 +185,7 @@ cmd_remove() {
   [[ -f $(entry_of "$1") ]] || fail "No profile named '$1'."
   rm -f "$(entry_of "$1")"
   rm -rf "${PROFILES:?}/$1"
+  repair_pairing
   echo "Removed Claude $1. Its sign-in data is kept in $(data_dir "$1") - delete that folder to sign out for good."
 }
 
@@ -144,6 +200,7 @@ cmd_doctor() {
     echo "Claude Desktop:   not found - https://claude.ai/download"
   fi
   if command -v python3 >/dev/null; then echo "  python3: ok"; else echo "  python3: missing"; fi
+  echo "Browser pairing:  $(pairing)"
   echo
   cmd_list
 }
@@ -155,6 +212,7 @@ cmd_uninstall() {
   fi
   rm -f "$ENTRIES"/multi-claude-*.desktop
   rm -rf "${DATA:?}/multi-claude"
+  repair_pairing
   echo "multi-claude removed. Sign-in data is kept in $CONFIG/Claude-* - delete those folders to sign out for good."
 }
 
@@ -182,6 +240,8 @@ case $cmd in
   doctor)    cmd_doctor ;;
   uninstall) cmd_uninstall ;;
   version)   echo "multi-claude $VERSION" ;;
+  _guard)    check_name "$name"; cmd_guard "$name" ;;   # internal: started by `open`
+  _repair-pairing) repair_pairing ;;                   # internal: used by the tests
   help|"")   echo "$USAGE" ;;
   *)         fail "Unknown command '$cmd'."$'\n\n'"$USAGE" 64 ;;
 esac

@@ -101,11 +101,13 @@ function Repair-ChromePairing {
     }
 }
 
+# "Chrome: regular Claude", "Edge: profile Work"... for each browser that has the pairing.
 function Get-ChromePairing {
-    $key = $ChromeHostKeys | Where-Object { Test-Path $_ } | Select-Object -First 1
-    if (-not $key) { return 'not set up' }
-    if ((Get-Item $key).GetValue('') -match $ProfileHostPath) { return "profile $($Matches[1])" }
-    'regular Claude'
+    $pairs = foreach ($key in $ChromeHostKeys | Where-Object { Test-Path $_ }) {
+        $browser = ($key -split '\\')[-3]
+        if ((Get-Item $key).GetValue('') -match $ProfileHostPath) { "${browser}: profile $($Matches[1])" } else { "${browser}: regular Claude" }
+    }
+    if ($pairs) { $pairs -join ', ' } else { 'not set up' }
 }
 function Get-ProfileOf($process) {
     if ($process.CommandLine -match '--user-data-dir="?[^"]*\\Claude-([A-Za-z0-9-]+)"?') { return $Matches[1] }
@@ -240,7 +242,7 @@ function Invoke-Doctor {
     Say ('Claude Desktop:   ' + $(if ($package) { $package.Version } else { 'not found - https://claude.ai/download' }))
     Say ('Launch alias:     ' + $(if (Test-Path (Get-LaunchAlias)) { 'ok' } else { 'missing' }))
     Say ('PowerShell mode:  ' + $ExecutionContext.SessionState.LanguageMode)
-    Say ('Claude in Chrome: ' + (Get-ChromePairing))
+    Say ('Browser pairing:  ' + (Get-ChromePairing))
     Import-Interop
     Say ('Package context:  ' + $(if ([MultiClaude.Package]::IsPackaged()) { 'yes - run add/remove from a regular terminal' } else { 'no' }))
     Say ''

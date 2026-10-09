@@ -35,5 +35,18 @@ hue = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)[0] * 360
 print(f"       background hue {hue:.0f}, target 214")
 sys.exit(0 if abs(hue - 214) < 25 else 1)
 PY'
+# Claude in Chrome: a profile took the browser's pairing; it must go back to the regular Claude.
+home=$tmp/home
+support="$home/Library/Application Support"
+main_host="$support/Claude/ChromeNativeHost/chrome-native-host"
+profile_host="$support/Claude-Work/ChromeNativeHost/chrome-native-host"
+chrome="$support/Google/Chrome/NativeMessagingHosts/com.anthropic.claude_browser_extension.json"
+manifest() { printf '{\n  "name": "com.anthropic.claude_browser_extension",\n  "path": "%s",\n  "type": "stdio"\n}\n' "$1"; }
+mkdir -p "${main_host:h}" "${chrome:h}"; touch "$main_host"; manifest "$profile_host" > "$chrome"
+check 'doctor shows a profile holding the pairing' 'grep -q "Chrome: profile Work" <<<"$(HOME=$home zsh "$cli" doctor)"'
+check 'pairing goes back to the regular Claude'   'HOME=$home zsh "$cli" _repair-pairing && grep -qF "\"path\": \"$main_host\"" "$chrome"'
+rm "$main_host"; manifest "$profile_host" > "$chrome"
+check 'pairing is left alone if the regular Claude never paired' 'HOME=$home zsh "$cli" _repair-pairing && grep -qF "\"path\": \"$profile_host\"" "$chrome"'
+
 (( failed == 0 )) && print 'all tests passed'
 exit $failed
