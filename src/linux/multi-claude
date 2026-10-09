@@ -101,8 +101,8 @@ EOF
 
   echo "
   Claude $name is ready: find it in your app launcher and pin it to your dock.
-  First sign-in: quit the regular Claude first. Sign-in comes back through a claude:// link,
-  and the system hands it to whichever Claude is open."
+  To sign in, choose \"Sign in with a code\". With single sign-on, quit the regular Claude first:
+  the browser hands the login to whichever Claude is open."
 }
 
 cmd_list() {

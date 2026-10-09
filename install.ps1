@@ -18,6 +18,42 @@
     # A failure sets the exit code without `exit`, which would close a window that piped us into iex.
     function Show-Failure([string]$text) { Write-Host $text -ForegroundColor Red; $global:LASTEXITCODE = 1 }
 
+    # Arrow-key color picker with a swatch per color; plain prompt when input isn't a keyboard.
+    function Read-ProfileColor {
+        $colors = [ordered]@{
+            green = 'DarkGreen'; blue = 'DarkBlue'; purple = 'DarkMagenta'; red = 'DarkRed'
+            teal = 'DarkCyan'; pink = 'Magenta'; gray = 'DarkGray'; 'custom hex...' = 'Gray'
+        }
+        if ([Console]::IsInputRedirected) {
+            $typed = Read-Host 'Color: green, blue, purple, red, teal, pink, gray or a hex like C0392B [green]'
+            if ($typed) { return $typed } else { return 'green' }
+        }
+        $names = @($colors.Keys)
+        $index = 0
+        Write-Host 'Pick its color with the arrow keys, then press Enter:'
+        $cursor = [Console]::CursorVisible
+        [Console]::CursorVisible = $false
+        try {
+            while ($true) {
+                for ($i = 0; $i -lt $names.Count; $i++) {
+                    Write-Host $(if ($i -eq $index) { '  > ' } else { '    ' }) -NoNewline
+                    Write-Host '    ' -BackgroundColor $colors[$names[$i]] -NoNewline
+                    Write-Host (' ' + $names[$i]).PadRight(20)
+                }
+                switch ([Console]::ReadKey($true).Key) {
+                    'UpArrow'   { $index = ($index + $names.Count - 1) % $names.Count }
+                    'DownArrow' { $index = ($index + 1) % $names.Count }
+                    'Enter'     {
+                        if ($names[$index] -ne 'custom hex...') { return $names[$index] }
+                        $typed = Read-Host 'Hex color (e.g. C0392B)'
+                        if ($typed) { return $typed } else { return 'green' }
+                    }
+                }
+                [Console]::SetCursorPosition(0, [Console]::CursorTop - $names.Count)
+            }
+        } finally { [Console]::CursorVisible = $cursor }
+    }
+
     if (-not (Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue)) {
         return Show-Failure 'Claude Desktop was not found. Install it from https://claude.ai/download'
     }
@@ -54,8 +90,7 @@
         Copy-Item (Join-Path $src '*') $app -Force
         Set-Content -Path (Join-Path $bin 'multi-claude.cmd') -Encoding Ascii -Value @(
             '@echo off'
-            # One line, so cmd never reads past it: `multi-claude uninstall` deletes this very file.
-            'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\app\multi-claude.ps1" %* & exit /b'
+            'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\app\multi-claude.ps1" %*'
         )
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
         if (($userPath -split ';') -notcontains $bin) {
@@ -66,11 +101,11 @@
         Write-Host '  multi-claude is installed. Add a profile with: multi-claude add Work --color blue' -ForegroundColor Green
         Write-Host ''
 
-        # 3. The first profile, right away.
-        $name = Read-Host 'Name your first profile (e.g. Work), or press Enter to skip'
+        # 3. An extra profile, right away. The regular Claude is never touched.
+        Write-Host 'Your regular Claude stays exactly as it is. Now add an extra Claude for another account.'
+        $name = Read-Host 'Name for the extra Claude (e.g. Work), or press Enter to skip'
         if ($name) {
-            $color = Read-Host 'Color (e.g. blue) [green]'
-            if (-not $color) { $color = 'green' }
+            $color = Read-ProfileColor
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $app 'multi-claude.ps1') add $name --color $color
         }
     } finally {

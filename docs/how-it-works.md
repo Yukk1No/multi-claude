@@ -41,9 +41,23 @@ If tagging ever fails, the window simply appears under the regular Claude button
 
 ## Sign-in
 
-Sign-in finishes in the browser and returns through a `claude://` link. The system gives that link
-to the Claude that registered it, usually the regular one, so the regular Claude must be closed
-during a profile's first sign-in. After that, each profile keeps its own login.
+A browser sign-in returns through a `claude://` link, and the system gives that link to whichever
+Claude is open, usually the regular one. **Sign in with a code** avoids the link entirely, so it works
+with every Claude open. With single sign-on, close the other Claude windows during a profile's first
+sign-in. After that, each profile keeps its own login.
+
+## What profiles share
+
+Each profile has its own account, conversations, Claude Code session list, scheduled tasks, MCP
+configuration and app settings. They share what exists once per user: the `~/.claude` folder
+(Claude Code settings, skills and memory), global keyboard shortcuts, the browser's pairing with
+Claude in Chrome, and on Windows the Store app's startup entry. The README lists how to keep your
+regular Claude in charge of these.
+
+On Windows, the browser finds Claude through one registry entry per user
+(`HKCU\Software\<browser>\NativeMessagingHosts\com.anthropic.claude_browser_extension`), and each
+Claude instance writes its own data folder there. While a profile is open, its watcher points that
+entry back to the regular Claude whenever a profile has taken it.
 
 ## Installation
 

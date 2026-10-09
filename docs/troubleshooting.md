@@ -8,8 +8,17 @@ On Windows, open a new terminal: the PATH change applies to new windows. On macO
 `~/.bashrc`).
 
 **A profile signed in to the wrong account.**
-The `claude://` sign-in link went to the other Claude. Quit every Claude window (on Windows, also from
-the tray icon), open only that profile, sign out and sign in again.
+The browser sent the `claude://` sign-in link to the other Claude. In the profile, sign out and sign in
+again with **Sign in with a code**. With single sign-on, quit every other Claude first (on Windows,
+also from the tray icon).
+
+**Claude in Chrome talks to the wrong account.**
+The browser pairs with the Claude that registered last. On Windows, opening any profile through
+multi-claude points it back to your regular Claude; `multi-claude doctor` shows the current pairing.
+On macOS and Linux, quit the profiles, then toggle Claude in Chrome off and on in your regular Claude.
+
+**A keyboard shortcut opens a profile instead of the regular Claude.**
+Only one app can own a global shortcut. In the profile's settings, turn its shortcut off or change it.
 
 **Windows: "this one runs inside an app package".**
 The terminal was started by a packaged app, where Windows redirects file writes, so shortcuts would

@@ -50,7 +50,8 @@ irm https://github.com/thomasog/multi-claude/releases/latest/download/install.ps
 curl -fsSL https://github.com/thomasog/multi-claude/releases/latest/download/install.sh | sh
 ```
 
-The installer asks for your first profile's name and color. It installs for your user only, and
+Your regular Claude stays as it is. The installer then offers to add an extra one right away: give it
+a name (e.g. *Work*) and pick a color. It installs for your user only, and
 checks the download against the SHA-256 recorded in the release. Every script is in this repository
 if you'd like to read it first.
 
@@ -67,9 +68,9 @@ multi-claude doctor                   # check this computer (Windows: doctor --s
 Colors: `green` `blue` `purple` `red` `teal` `pink` `gray`, or any hex value such as `C0392B`.
 
 > [!IMPORTANT]
-> **First sign-in:** quit the regular Claude before you sign in to a new profile. Sign-in comes back
-> through a `claude://` link, and your system hands it to whichever Claude is open. You only do this
-> once per profile.
+> **Signing in to a new profile:** choose **Sign in with a code**, so the login stays in that window.
+> With single sign-on, quit the regular Claude first: the browser returns the login through a
+> `claude://` link, which goes to whichever Claude is open. Each profile remembers its login.
 
 ## FAQ
 
@@ -80,15 +81,33 @@ settings, skills, memory and the history of Claude Code sessions.
 **Do profiles combine usage limits?**
 No. Each profile is simply signed in to its own account, with that account's plan and limits.
 
-**Does it work with Cowork?**
-On Windows, Cowork runs in one profile at a time, because Windows allows one Cowork VM per user.
-
-**Why does the Dock show the regular icon on macOS?**
-The colored icon belongs to the profile's launcher. The running app is Claude itself, so macOS shows
-Claude's icon.
+**Will my regular Claude keep working as before?**
+Yes. Its data, Start menu entry, pinned button and `claude://` links are untouched; profiles only add
+new ones. A few things exist once per computer, though. See the limitations below.
 
 **How do I update?**
 Run the install command again. To refresh a profile's icon, run `multi-claude add` with the same name.
+
+## Known limitations
+
+Some Claude features are registered once per computer, so the profiles share them. To keep your
+regular Claude in charge of them:
+
+- **Global keyboard shortcut (Quick Entry).** Only one app can own a shortcut; whichever Claude opens
+  first gets it. In each profile's settings, turn the shortcut off or give it another key.
+- **Open at login.** Leave this setting alone in profiles. On Windows the Store app has a single
+  startup entry, so turning it off in a profile can turn it off for your regular Claude too.
+- **Claude in Chrome** pairs with one Claude per computer, and every instance tries to claim it. On
+  Windows, multi-claude keeps it on your regular Claude automatically (`multi-claude doctor` shows
+  the pairing). On macOS and Linux, if the extension talks to a profile, quit the profiles and toggle
+  Claude in Chrome off and on in your regular Claude.
+- **Tray icons.** Every instance shows the same Claude icon in the system tray (or menu bar), with the
+  same tooltip. The taskbar buttons and launchers are the ones that tell profiles apart.
+- **Notifications** from a profile show up as "Claude", and clicking one may bring up your regular
+  Claude.
+- **Cowork on Windows** runs in one profile at a time, because Windows allows one Cowork VM per user.
+- **macOS Dock:** the colored icon belongs to the profile's launcher. While a profile runs, the Dock
+  shows Claude's own icon, because the running app is Claude itself.
 
 More: [how it works](docs/how-it-works.md) · [troubleshooting](docs/troubleshooting.md)
 

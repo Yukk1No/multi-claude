@@ -78,8 +78,34 @@ function Assert-NotPackaged {
     if ([MultiClaude.Package]::IsPackaged()) { Fail 'Run this from a regular terminal: this one runs inside an app package, where Windows redirects file writes.' 3 }
 }
 
+# The app's main processes only: not its helpers (--type=), not Claude Code's own claude.exe.
 function Get-ClaudeMainProcess {
-    @(Get-CimInstance Win32_Process -Filter "Name='Claude.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' })
+    @(Get-CimInstance Win32_Process -Filter "Name='Claude.exe'" |
+        Where-Object { $_.ExecutablePath -like '*\WindowsApps\Claude_*' -and $_.CommandLine -notmatch '--type=' })
+}
+
+# Claude in Chrome: browsers find Claude through one registry entry per user, and every Claude
+# instance writes its own data folder there. Keep it pointing at the regular Claude.
+$ChromeHostKeys = 'Google\Chrome', 'Microsoft\Edge', 'BraveSoftware\Brave-Browser', 'Chromium' |
+    ForEach-Object { "HKCU:\Software\$_\NativeMessagingHosts\com.anthropic.claude_browser_extension" }
+$ProfileHostPath = '\\Claude-([A-Za-z0-9-]+)\\ChromeNativeHost\\'
+function Get-MainChromeHost { Join-Path $env:APPDATA 'Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json' }
+
+function Repair-ChromePairing {
+    $main = Get-MainChromeHost
+    $package = Get-ClaudePackage
+    $mirrored = if ($package) { Join-Path $env:LOCALAPPDATA "Packages\$($package.PackageFamilyName)\LocalCache\Roaming\Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json" }
+    if (-not ((Test-Path $main) -or ($mirrored -and (Test-Path $mirrored)))) { return }   # regular Claude never paired
+    foreach ($key in $ChromeHostKeys) {
+        if ((Test-Path $key) -and ((Get-Item $key).GetValue('') -match $ProfileHostPath)) { Set-Item -Path $key -Value $main }
+    }
+}
+
+function Get-ChromePairing {
+    $key = $ChromeHostKeys | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $key) { return 'not set up' }
+    if ((Get-Item $key).GetValue('') -match $ProfileHostPath) { return "profile $($Matches[1])" }
+    'regular Claude'
 }
 function Get-ProfileOf($process) {
     if ($process.CommandLine -match '--user-data-dir="?[^"]*\\Claude-([A-Za-z0-9-]+)"?') { return $Matches[1] }
@@ -128,8 +154,8 @@ function Invoke-Add {
     Say ''
     Say "  Claude $Name is ready." Green
     Say '  Open it from the Start menu, then right-click its taskbar button > Pin to taskbar.'
-    Say '  First sign-in: quit the regular Claude first (tray icon > Quit). Sign-in comes back through a'
-    Say '  claude:// link, and Windows hands it to whichever Claude is open.'
+    Say '  To sign in, choose "Sign in with a code". With single sign-on, quit the regular Claude first:'
+    Say '  the browser hands the login to whichever Claude is open.'
 }
 
 function Invoke-List {
@@ -150,6 +176,7 @@ function Invoke-Remove {
     $shortcut = Get-Shortcut $Name
     if (Test-Path $shortcut) { Remove-Item -LiteralPath $shortcut -Force }
     Remove-Item -LiteralPath $dir -Recurse -Force
+    Repair-ChromePairing
     Say "Removed Claude $Name. Unpin its taskbar button if pinned."
     Say "Its sign-in data is kept in $(Get-DataDir $Name) - delete that folder to sign out for good."
 }
@@ -168,6 +195,7 @@ function Invoke-Open {
     # Started from inside a Claude session, we would hand its CLAUDE_*/ANTHROPIC_* variables to Claude.
     Get-ChildItem Env: | Where-Object Name -Match '^(CLAUDE|ANTHROPIC)' | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
     if (-not (Test-Path (Get-LaunchAlias))) { Write-Log $NotFound; Fail $NotFound }
+    Repair-ChromePairing
     Start-Process -FilePath (Get-LaunchAlias) -ArgumentList ('--user-data-dir="{0}"' -f (Get-DataDir $Name))
 
     $isFirst = $false
@@ -184,6 +212,7 @@ function Invoke-Open {
             }
             if ($pids) {
                 $goneSince = $null
+                try { Repair-ChromePairing } catch { Write-Log "keeping Claude in Chrome paired failed: $($_.Exception.Message)" }
                 foreach ($hwnd in [MultiClaude.Window]::Of([uint32[]]$pids)) {
                     try {
                         if ([MultiClaude.Window]::GetId($hwnd) -ne $id) {
@@ -199,7 +228,10 @@ function Invoke-Open {
             }
             Start-Sleep -Milliseconds $(if ($elapsed -lt 30) { 300 } else { 2000 })
         }
-    } finally { $mutex.ReleaseMutex(); $mutex.Dispose() }
+    } finally {
+        Repair-ChromePairing
+        $mutex.ReleaseMutex(); $mutex.Dispose()
+    }
 }
 
 function Invoke-Doctor {
@@ -208,6 +240,7 @@ function Invoke-Doctor {
     Say ('Claude Desktop:   ' + $(if ($package) { $package.Version } else { 'not found - https://claude.ai/download' }))
     Say ('Launch alias:     ' + $(if (Test-Path (Get-LaunchAlias)) { 'ok' } else { 'missing' }))
     Say ('PowerShell mode:  ' + $ExecutionContext.SessionState.LanguageMode)
+    Say ('Claude in Chrome: ' + (Get-ChromePairing))
     Import-Interop
     Say ('Package context:  ' + $(if ([MultiClaude.Package]::IsPackaged()) { 'yes - run add/remove from a regular terminal' } else { 'no' }))
     Say ''
@@ -245,13 +278,19 @@ function Invoke-Uninstall {
     Import-Interop
     Assert-NotPackaged
     foreach ($p in Get-ProfileName) { $s = Get-Shortcut $p; if (Test-Path $s) { Remove-Item -LiteralPath $s -Force } }
+    Repair-ChromePairing
     $bin  = Join-Path $Root 'bin'
     $path = [Environment]::GetEnvironmentVariable('Path', 'User')
     if ($path) {
         $kept = ($path -split ';' | Where-Object { $_ -and $_.TrimEnd('\') -ne $bin }) -join ';'
         if ($kept -ne $path) { [Environment]::SetEnvironmentVariable('Path', $kept, 'User') }
     }
-    if (Test-Path $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+    # The multi-claude.cmd running this command lives in $Root, and cmd.exe fails if its batch file
+    # vanishes mid-run: delete the folder a moment after we exit.
+    if (Test-Path $Root) {
+        $cmd = Join-Path $env:windir 'System32\cmd.exe'
+        Start-Process $cmd -WindowStyle Hidden -ArgumentList "/d /c ping -n 3 127.0.0.1 >nul & rmdir /s /q `"$Root`""
+    }
     Say 'multi-claude removed. Unpin any profile buttons from the taskbar.'
     Say "Sign-in data is kept in $env:LOCALAPPDATA\Claude-* - delete those folders to sign out for good."
 }

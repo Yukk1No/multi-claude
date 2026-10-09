@@ -58,16 +58,32 @@ main() {
   esac
   echo
 
-  # 3. The first profile, right away (reads the terminal even when piped from curl).
+  # 3. An extra profile, right away (reads the terminal even when piped from curl).
+  #    The regular Claude is never touched.
   if (: </dev/tty) 2>/dev/null; then
-    printf 'Name your first profile (e.g. Work), or press Enter to skip: ' >/dev/tty
+    echo 'Your regular Claude stays exactly as it is. Now add an extra Claude for another account.' >/dev/tty
+    printf 'Name for the extra Claude (e.g. Work), or press Enter to skip: ' >/dev/tty
     read -r name </dev/tty || name=
     if [ -n "$name" ]; then
-      printf 'Color (e.g. blue) [green]: ' >/dev/tty
-      read -r color </dev/tty || color=
-      "$lib/multi-claude" add "$name" --color "${color:-green}"
+      "$lib/multi-claude" add "$name" --color "$(pick_color)"
     fi
   fi
+}
+
+# Numbered color list with a swatch per color; a hex value can be typed instead.
+pick_color() {
+  i=0
+  for entry in green:1F6F43 blue:1F4E8C purple:5B3A8E red:9B2C2C teal:146C6C pink:A0346B gray:4A4F57; do
+    i=$((i + 1)); hex=${entry#*:}
+    r=$((0x$(echo "$hex" | cut -c1-2))); g=$((0x$(echo "$hex" | cut -c3-4))); b=$((0x$(echo "$hex" | cut -c5-6)))
+    printf '  %d \033[48;2;%d;%d;%dm    \033[0m %s\n' "$i" "$r" "$g" "$b" "${entry%%:*}" >/dev/tty
+  done
+  printf 'Color: a number above, or a hex like C0392B [1]: ' >/dev/tty
+  read -r choice </dev/tty || choice=
+  case ${choice:-1} in
+    1) echo green ;; 2) echo blue ;; 3) echo purple ;; 4) echo red ;;
+    5) echo teal ;; 6) echo pink ;; 7) echo gray ;; *) echo "$choice" ;;
+  esac
 }
 
 main "$@"

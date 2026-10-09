@@ -91,8 +91,8 @@ cmd_add() {
 
   print "
   Claude $name is ready: $app
-  Drag it to the Dock. First sign-in: quit the regular Claude first (Cmd+Q). Sign-in comes back
-  through a claude:// link, and macOS hands it to whichever Claude is open."
+  Drag it to the Dock. To sign in, choose \"Sign in with a code\". With single sign-on, quit the
+  regular Claude first (Cmd+Q): the browser hands the login to whichever Claude is open."
 }
 
 cmd_list() {
