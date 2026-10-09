@@ -1,0 +1,52 @@
+name: Release
+
+# Push a tag like v0.1.0. The tests run, the installers are stamped with the version and the archives'
+# SHA-256, and everything is published with build provenance.
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the tag matches the version everywhere
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          tr -d '\r' < src/windows/multi-claude.ps1 | grep -q "^\$Version = '$v'$"
+          grep -q "^VERSION=$v$" src/macos/multi-claude
+          grep -q "^VERSION=$v$" src/linux/multi-claude
+          grep -q "^## \[$v\]" CHANGELOG.md
+
+      - name: Build archives and stamp the installers
+        run: |
+          mkdir dist
+          zip -qr dist/multi-claude.zip src LICENSE README.md
+          tar -czf dist/multi-claude.tar.gz src LICENSE README.md
+          zip_sha=$(sha256sum dist/multi-claude.zip | cut -d' ' -f1)
+          tar_sha=$(sha256sum dist/multi-claude.tar.gz | cut -d' ' -f1)
+          sed -e "s/__VERSION__/$GITHUB_REF_NAME/" -e "s/__SHA256__/${zip_sha^^}/" install.ps1 > dist/install.ps1
+          sed -e "s/__VERSION__/$GITHUB_REF_NAME/" -e "s/__SHA256__/$tar_sha/" install.sh > dist/install.sh
+          (cd dist && sha256sum multi-claude.zip multi-claude.tar.gz install.ps1 install.sh > SHA256SUMS)
+
+      - name: Release notes from the changelog
+        run: awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[|^\[.*\]: / {on=0} on' CHANGELOG.md > notes.md
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md

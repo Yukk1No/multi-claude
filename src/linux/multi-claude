@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# multi-claude for Linux (experimental) - run several Claude Desktop accounts side by side.
+# https://github.com/thomasog/multi-claude
+#
+# A profile is the official Claude Desktop started with its own --user-data-dir, so it keeps its own
+# sign-in. `add` creates a desktop entry whose icon is Claude's own icon, recolored. No artwork ships
+# with this tool.
+set -euo pipefail
+
+VERSION=0.1.0
+HERE=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}
+DATA=${XDG_DATA_HOME:-$HOME/.local/share}
+ENTRIES=$DATA/applications
+PROFILES=$DATA/multi-claude/profiles
+NOT_FOUND="Claude Desktop was not found. Install it from https://claude.ai/download"
+declare -A PALETTE=([green]=1F6F43 [blue]=1F4E8C [purple]=5B3A8E [red]=9B2C2C [teal]=146C6C [pink]=A0346B [gray]=4A4F57)
+COLORS="green, blue, purple, red, teal, pink, gray"
+
+USAGE="multi-claude $VERSION - several Claude Desktop accounts side by side (Linux: experimental)
+
+  multi-claude add <name> [--color <color>]   new profile: own sign-in and colored launcher
+  multi-claude list                           installed profiles
+  multi-claude open <name>                    open a profile
+  multi-claude remove <name>                  remove a profile (its sign-in data is kept)
+  multi-claude doctor                         check this machine
+  multi-claude uninstall                      remove multi-claude and every profile launcher
+
+Colors: $COLORS or a hex value like C0392B"
+
+fail()       { echo "$1" >&2; exit "${2:-1}"; }
+data_dir()   { echo "$CONFIG/Claude-$1"; }
+app_id()     { echo "multi-claude-${1,,}"; }   # desktop file id = window class, so docks group them
+entry_of()   { echo "$ENTRIES/$(app_id "$1").desktop"; }
+is_running() { command -v pgrep >/dev/null && pgrep -f -- "--user-data-dir=$(data_dir "$1")( |\$)" >/dev/null; }
+check_name() { [[ $1 =~ ^[A-Za-z0-9-]{1,24}$ ]] || fail "Profile name: letters, digits and dashes, up to 24 characters (e.g. Work)." 64; }
+entry_key()  { grep -m1 "^$2=" "$1" | cut -d= -f2-; }
+
+# An existing profile's spelling, so `open work` finds profile "Work".
+canonical() {
+  local name
+  if [[ -f $(entry_of "$1") ]]; then name=$(entry_key "$(entry_of "$1")" Name); echo "${name#Claude }"; else echo "$1"; fi
+}
+
+# The official desktop entry says how Claude is launched and which icon it uses.
+claude_entry() {
+  local dir file
+  for dir in "$ENTRIES" /usr/local/share/applications /usr/share/applications; do
+    for file in "$dir"/*.desktop; do
+      [[ -f $file && $(basename "$file") != multi-claude-* ]] || continue
+      if grep -qE '^Name=Claude( Desktop)?$' "$file"; then echo "$file"; return 0; fi
+    done
+  done
+  return 1
+}
+
+claude_launch() { entry_key "$1" Exec | sed -E 's/ ?%[fFuUdDnNickvm]//g'; }   # drop field codes
+
+claude_icon() {
+  local icon size base
+  icon=$(entry_key "$1" Icon)
+  if [[ $icon == /* && -f $icon ]]; then echo "$icon"; return 0; fi
+  for size in 512x512 256x256 128x128; do
+    for base in "$DATA/icons" /usr/local/share/icons /usr/share/icons; do
+      if [[ -f $base/hicolor/$size/apps/$icon.png ]]; then echo "$base/hicolor/$size/apps/$icon.png"; return 0; fi
+    done
+  done
+  if [[ -f /usr/share/pixmaps/$icon.png ]]; then echo "/usr/share/pixmaps/$icon.png"; return 0; fi
+  return 1
+}
+
+cmd_add() {
+  local name=$1 color=$2 hex entry launch icon dir existing
+  check_name "$name"
+  hex=${PALETTE[${color,,}]:-${color#\#}}
+  [[ $hex =~ ^[0-9A-Fa-f]{6}$ ]] || fail "Unknown color '$color'. Use $COLORS or a hex value like C0392B." 64
+  if [[ -f $(entry_of "$name") ]]; then
+    existing=$(entry_key "$(entry_of "$name")" Name); existing=${existing#Claude }
+    [[ $existing == "$name" ]] || fail "A profile named '$existing' already exists; names are not case-sensitive." 64
+  fi
+  entry=$(claude_entry) || fail "$NOT_FOUND"
+  launch=$(claude_launch "$entry")
+  icon=$(claude_icon "$entry") || fail "Could not find Claude's icon ($(entry_key "$entry" Icon))."
+  command -v python3 >/dev/null || fail "python3 is required to color the icon."
+
+  dir=$PROFILES/$name
+  mkdir -p "$dir" "$ENTRIES"
+  python3 "$HERE/recolor.py" "$icon" "$dir/icon.png" "$hex"
+  cat > "$(entry_of "$name")" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Claude $name
+Comment=Claude Desktop - $name
+Exec=$launch "--user-data-dir=$(data_dir "$name")" --class=$(app_id "$name")
+Icon=$dir/icon.png
+StartupWMClass=$(app_id "$name")
+Categories=Office;Utility;
+Terminal=false
+EOF
+  if command -v update-desktop-database >/dev/null; then update-desktop-database "$ENTRIES" 2>/dev/null || true; fi
+
+  echo "
+  Claude $name is ready: find it in your app launcher and pin it to your dock.
+  First sign-in: quit the regular Claude first. Sign-in comes back through a claude:// link,
+  and the system hands it to whichever Claude is open."
+}
+
+cmd_list() {
+  local file name found=0
+  for file in "$ENTRIES"/multi-claude-*.desktop; do
+    [[ -f $file ]] || continue
+    found=1; name=$(entry_key "$file" Name); name=${name#Claude }
+    printf '%-16s %-8s %s\n' "$name" "$(if is_running "$name"; then echo running; fi)" "$(data_dir "$name")"
+  done
+  if (( ! found )); then echo "No profiles yet. Add one with: multi-claude add <name>"; fi
+}
+
+cmd_open() {
+  local entry; local -a argv
+  check_name "$1"
+  entry=$(claude_entry) || fail "$NOT_FOUND"
+  # Split Exec like a desktop launcher would, so quoted paths ("/opt/Claude Desktop/claude") survive.
+  mapfile -t argv < <(xargs -n1 printf '%s\n' <<<"$(claude_launch "$entry")")
+  command -v "${argv[0]}" >/dev/null || fail "Cannot run Claude: ${argv[0]}"
+  nohup "${argv[@]}" "--user-data-dir=$(data_dir "$1")" "--class=$(app_id "$1")" >/dev/null 2>&1 &
+}
+
+cmd_remove() {
+  check_name "$1"
+  [[ -f $(entry_of "$1") ]] || fail "No profile named '$1'."
+  rm -f "$(entry_of "$1")"
+  rm -rf "${PROFILES:?}/$1"
+  echo "Removed Claude $1. Its sign-in data is kept in $(data_dir "$1") - delete that folder to sign out for good."
+}
+
+cmd_doctor() {
+  local entry
+  echo "multi-claude $VERSION (Linux support is experimental)"
+  if entry=$(claude_entry); then
+    echo "Claude Desktop:   $entry"
+    echo "  launch: $(claude_launch "$entry")"
+    echo "  icon:   $(claude_icon "$entry" || echo 'not found')"
+  else
+    echo "Claude Desktop:   not found - https://claude.ai/download"
+  fi
+  if command -v python3 >/dev/null; then echo "  python3: ok"; else echo "  python3: missing"; fi
+  echo
+  cmd_list
+}
+
+cmd_uninstall() {
+  local link=$HOME/.local/bin/multi-claude
+  if [[ -L $link && $(readlink "$link") == "$DATA/multi-claude/"* ]] || grep -qs '^# multi-claude for' "$link"; then
+    rm -f "$link"
+  fi
+  rm -f "$ENTRIES"/multi-claude-*.desktop
+  rm -rf "${DATA:?}/multi-claude"
+  echo "multi-claude removed. Sign-in data is kept in $CONFIG/Claude-* - delete those folders to sign out for good."
+}
+
+# --- arguments ---------------------------------------------------------------------------------------
+cmd="" name="" color=green
+while (( $# )); do
+  case $1 in
+    -c|--color)   (( $# >= 2 )) || fail "--color needs a value." 64; color=$2; shift ;;
+    -h|--help)    cmd=help ;;
+    -v|--version) cmd=version ;;
+    -*)           fail "Unknown option '$1'."$'\n\n'"$USAGE" 64 ;;
+    *)
+      if [[ -z $cmd ]]; then cmd=$1
+      elif [[ -z $name ]]; then name=$1
+      else fail "Unexpected argument '$1'."$'\n\n'"$USAGE" 64; fi ;;
+  esac
+  shift
+done
+
+case $cmd in
+  add)       cmd_add "$name" "$color" ;;
+  list)      cmd_list ;;
+  open)      check_name "$name"; cmd_open "$(canonical "$name")" ;;
+  remove)    check_name "$name"; cmd_remove "$(canonical "$name")" ;;
+  doctor)    cmd_doctor ;;
+  uninstall) cmd_uninstall ;;
+  version)   echo "multi-claude $VERSION" ;;
+  help|"")   echo "$USAGE" ;;
+  *)         fail "Unknown command '$cmd'."$'\n\n'"$USAGE" 64 ;;
+esac

@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $issues = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          $issues | Format-Table -AutoSize
+          if ($issues) { exit 1 }
+      - name: Test
+        shell: powershell
+        run: .\tests\windows.tests.ps1
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test
+        run: zsh tests/macos.sh
+      - name: Install from this checkout, then uninstall
+        run: |
+          ./install.sh </dev/null
+          ~/.local/bin/multi-claude help
+          ~/.local/bin/multi-claude uninstall
+          test ! -e ~/.local/bin/multi-claude
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Lint
+        run: |
+          shellcheck install.sh src/linux/multi-claude tests/linux.sh
+          pipx run ruff check .
+      - name: Test
+        run: |
+          python3 -m unittest discover -s tests -v
+          bash tests/linux.sh
+      - name: Install from this checkout, then uninstall
+        run: |
+          ./install.sh </dev/null
+          ~/.local/bin/multi-claude help
+          ~/.local/bin/multi-claude uninstall
+          test ! -e ~/.local/bin/multi-claude

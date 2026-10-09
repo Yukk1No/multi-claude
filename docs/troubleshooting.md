@@ -1,0 +1,41 @@
+# Troubleshooting
+
+Start with `multi-claude doctor` (on Windows, `multi-claude doctor --selftest`).
+
+**`multi-claude: command not found` right after installing.**
+On Windows, open a new terminal: the PATH change applies to new windows. On macOS and Linux, add
+`~/.local/bin` to your PATH (for example, `export PATH="$HOME/.local/bin:$PATH"` in `~/.zshrc` or
+`~/.bashrc`).
+
+**A profile signed in to the wrong account.**
+The `claude://` sign-in link went to the other Claude. Quit every Claude window (on Windows, also from
+the tray icon), open only that profile, sign out and sign in again.
+
+**Windows: "this one runs inside an app package".**
+The terminal was started by a packaged app, where Windows redirects file writes, so shortcuts would
+land where the Start menu can't see them. Open PowerShell from the Start menu and run the command
+there.
+
+**Windows: "PowerShell runs in ConstrainedLanguage mode" or "blocked by a security policy".**
+Your organization restricts PowerShell (AppLocker, Device Guard or similar). multi-claude needs to
+load a small helper to set icons and taskbar IDs, so ask your IT team, or use the machine's regular
+Claude account only.
+
+**Windows: a profile's window shows under the regular Claude button.**
+Open the profile from its own Start menu shortcut or pinned button, not from the regular Claude. If it
+still happens, `multi-claude doctor` should list its windows with `taskbar id: MultiClaude.<name>`.
+The log is at `%USERPROFILE%\.multi-claude\profiles\<name>\open.log`.
+
+**Windows: the pinned button lost its color.**
+Unpin it, open the profile from the Start menu, and pin the running button again.
+
+**macOS: the launcher shows a generic icon.**
+Run `multi-claude add <name> --color <color>` again to rebuild it, then remove it from the Dock and
+add it again.
+
+**Linux: Claude Desktop was not found.**
+multi-claude looks for the official desktop entry named `Claude`. `multi-claude doctor` shows what
+it found.
+
+**Sign a profile out for good.**
+Run `multi-claude remove <name>`, then delete the data folder it prints.
