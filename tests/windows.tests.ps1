@@ -62,6 +62,13 @@ Test 'AppUserModelID round-trips on a .lnk' {
 
 Write-Host 'cli'
 Test 'help exits 0'                 { Assert ((Invoke-Cli help) -eq 0) 'help failed' }
+Test 'commands ignore case'         { Assert ((Invoke-Cli HELP) -eq 0) 'expected 0' }
+Test 'reserved name exits 64'       { Assert ((Invoke-Cli add 3p --preview $tmp) -eq 64) 'expected 64' }
+Test 'opening an unknown profile exits 1' { Assert ((Invoke-Cli open NoSuchProfile) -eq 1) 'expected 1' }
+Test 'user PATH is read without expanding variables' {
+    $raw = (Get-Item 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+    Assert ((([MultiClaude.UserPath]::Get()) -join ';') -eq (($raw -split ';' | Where-Object { $_ }) -join ';')) 'PATH entries differ from the stored ones'
+}
 Test 'unknown command exits 64'     { Assert ((Invoke-Cli frobnicate) -eq 64) 'expected 64' }
 Test 'invalid name exits 64'        { Assert ((Invoke-Cli add 'a b' --preview $tmp) -eq 64) 'expected 64' }
 Test 'invalid color exits 64'       { Assert ((Invoke-Cli add Work --color banana --preview $tmp) -eq 64) 'expected 64' }

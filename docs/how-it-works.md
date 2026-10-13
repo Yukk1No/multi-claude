@@ -10,7 +10,7 @@ gives a second, fully separate instance with its own login. That is all a profil
 |---------|-----------------------------------------------|-----------------------------------------------------------|
 | Windows | `%LOCALAPPDATA%\Claude-<name>`                | Start menu shortcut `Claude <name>`                       |
 | macOS   | `~/Library/Application Support/Claude-<name>` | `~/Applications/Claude <name>.app`                        |
-| Linux   | `~/.config/Claude-<name>`                     | `~/.local/share/applications/multi-claude-<name>.desktop` |
+| Linux   | `~/.config/Claude-<name>`                     | `~/.local/share/applications/multi-claude-<name in lowercase>.desktop` |
 
 Nothing inside Claude changes, so app updates apply to every profile.
 
@@ -43,31 +43,33 @@ If tagging ever fails, the window simply appears under the regular Claude button
 
 A browser sign-in returns through a `claude://` link, and the system gives that link to whichever
 Claude is open, usually the regular one. **Sign in with a code** avoids the link entirely, so it works
-with every Claude open. With single sign-on, close the other Claude windows during a profile's first
-sign-in. After that, each profile keeps its own login.
+with every Claude open. With single sign-on, quit every other Claude first, including other profiles
+(on Windows, also from the tray). After that, each profile keeps its own login.
 
 ## What profiles share
 
-Each profile has its own account, conversations, Claude Code session list, scheduled tasks, MCP
+Each profile has its own account, conversations, list of Claude Code sessions, scheduled tasks, MCP
 configuration and app settings. They share what exists once per user: the `~/.claude` folder
-(Claude Code settings, skills and memory), global keyboard shortcuts, the browser's pairing with
-Claude in Chrome, and on Windows the Store app's startup entry. The README lists how to keep your
-regular Claude in charge of these.
+(Claude Code settings, skills, memory and session transcripts), global keyboard shortcuts, the
+browser's pairing with Claude in Chrome, and on Windows the packaged app's startup entry. The README
+lists how to keep your regular Claude in charge of these.
 
 Browsers find Claude through one native-messaging entry per user
 (`com.anthropic.claude_browser_extension`): a registry key on Windows, a JSON manifest in each
-browser's `NativeMessagingHosts` folder on macOS and Linux. Each Claude instance writes its own data
-folder there. Profile launchers run `multi-claude open`, which starts a small watcher for as long as
+browser's `NativeMessagingHosts` folder on macOS and Linux. Each Claude instance writes its own
+manifest path there; on Windows, the packaged app registers it inside its package's redirected
+AppData folder. Profile launchers run `multi-claude open`, which starts a small watcher for as long as
 the profile is open; whenever a profile has taken the entry, the watcher points it back to the
-regular Claude, in Chrome, Edge, Brave and Chromium. It never touches the entry if the regular Claude
-has not paired.
+regular Claude's own manifest, in Chrome, Edge, Brave and Chromium. It never touches the entry if the
+regular Claude has not paired.
 
 ## Installation
 
 The install commands download a versioned release archive. The release workflow writes that version
 and the archive's SHA-256 into the installer itself, so the installer only accepts the exact archive
 it was published with, and the release carries a build provenance attestation. Everything installs
-in your user folder; nothing needs admin rights.
+in your user folder (on Windows the command is also added to your user PATH; on macOS and Linux it
+is linked into `~/.local/bin`); nothing needs admin rights.
 
 Plain scripts were chosen over a compiled installer: an unsigned executable triggers SmartScreen and
 antivirus heuristics, and every new build starts with no reputation. Scripts can be read before they

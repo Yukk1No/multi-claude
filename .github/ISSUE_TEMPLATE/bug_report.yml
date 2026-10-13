@@ -13,7 +13,7 @@ body:
     id: doctor
     attributes:
       label: Output of `multi-claude doctor`
-      description: On Windows, `multi-claude doctor --selftest`. It shows the Claude version too.
+      description: On Windows, `multi-claude doctor --selftest`. It shows the Claude version too. Paths include your user name; redact it if you like.
       render: text
     validations:
       required: true

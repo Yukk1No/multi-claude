@@ -1,18 +1,16 @@
 <div align="center">
 
-<img src="assets/social-preview.png" alt="multi-claude: several Claude Desktop accounts, side by side" width="720">
-
 # multi-claude
 
 **Run multiple Claude Desktop accounts at once.**<br>
-Work and personal, each with its own sign-in, its own colored icon and its own taskbar button.<br>
-Like browser profiles, for Claude.
+Work and personal profiles, each with its own sign-in, its own colored icon and its own taskbar
+button. Like browser profiles, for Claude.
 
 [![CI](https://github.com/thomasog/multi-claude/actions/workflows/ci.yml/badge.svg)](https://github.com/thomasog/multi-claude/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/thomasog/multi-claude)](https://github.com/thomasog/multi-claude/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 <br>
-![Windows: stable](https://img.shields.io/badge/Windows-stable-0078D4)
+![Windows: supported](https://img.shields.io/badge/Windows-supported-0078D4)
 ![macOS: beta](https://img.shields.io/badge/macOS-beta-555555)
 ![Linux: experimental](https://img.shields.io/badge/Linux-experimental-E95420)
 
@@ -50,43 +48,51 @@ irm https://github.com/thomasog/multi-claude/releases/latest/download/install.ps
 curl -fsSL https://github.com/thomasog/multi-claude/releases/latest/download/install.sh | sh
 ```
 
-Your regular Claude stays as it is. The installer then offers to add an extra one right away: give it
-a name (e.g. *Work*) and pick a color. It installs for your user only, and
-checks the download against the SHA-256 recorded in the release. Every script is in this repository
-if you'd like to read it first.
+Your regular Claude stays as it is. The installer offers to add an extra one right away: give it a
+name (e.g. *Work*) and pick a color. It installs for your user only and checks the download against
+the SHA-256 pinned in the installer. Every script is in this repository if you'd like to read it
+first.
 
 ## Use
 
 ```sh
 multi-claude add Work --color blue    # a new profile, in the Start menu, Applications or app launcher
 multi-claude list                     # your profiles
-multi-claude open Work                # open one (its launcher does the same)
 multi-claude remove Work              # remove it; its sign-in data is kept
-multi-claude doctor                   # check this computer (Windows: doctor --selftest)
+multi-claude doctor                   # check this computer
+multi-claude doctor --selftest        # Windows only: also test taskbar tagging
 ```
 
-Colors: `green` `blue` `purple` `red` `teal` `pink` `gray`, or any hex value such as `C0392B`.
+Open a profile from its launcher. (`multi-claude open Work` does the same; on Windows it keeps the
+terminal busy until the profile closes.)
+
+Colors: `green` (default) `blue` `purple` `red` `teal` `pink` `gray`, or any hex value such as
+`C0392B`.
 
 > [!IMPORTANT]
 > **Signing in to a new profile:** choose **Sign in with a code**, so the login stays in that window.
-> With single sign-on, quit the regular Claude first: the browser returns the login through a
-> `claude://` link, which goes to whichever Claude is open. Each profile remembers its login.
+> With single sign-on, quit every other Claude first, including other profiles (on Windows, also from
+> the tray): the browser returns the login through a `claude://` link, which goes to whichever Claude
+> is open. Each profile remembers its login.
+
+More: [how it works](docs/how-it-works.md) · [troubleshooting](docs/troubleshooting.md)
 
 ## FAQ
 
 **Can I use Claude Code in every profile at once?**
-Yes. Each profile has its own account and session list. All profiles share your `~/.claude` folder:
-settings, skills, memory and the history of Claude Code sessions.
+Yes. Each profile has its own account and its own list of sessions. All profiles share `~/.claude`:
+Claude Code settings, skills, memory and session transcripts.
 
 **Do profiles combine usage limits?**
 No. Each profile is simply signed in to its own account, with that account's plan and limits.
 
 **Will my regular Claude keep working as before?**
 Yes. Its data, Start menu entry, pinned button and `claude://` links are untouched; profiles only add
-new ones. A few things exist once per computer, though. See the limitations below.
+their own launchers. A few things exist once per computer, though. See the limitations below.
 
 **How do I update?**
-Run the install command again. To refresh a profile's icon, run `multi-claude add` with the same name.
+Run the install command again. To recolor a profile, run `multi-claude add <name> --color <color>`
+with the same name.
 
 ## Known limitations
 
@@ -95,8 +101,8 @@ regular Claude in charge of them:
 
 - **Global keyboard shortcut (Quick Entry).** Only one app can own a shortcut; whichever Claude opens
   first gets it. In each profile's settings, turn the shortcut off or give it another key.
-- **Open at login.** Leave this setting alone in profiles. On Windows the Store app has a single
-  startup entry, so turning it off in a profile can turn it off for your regular Claude too.
+- **Open at login.** Leave this setting alone in profiles. On Windows the packaged (MSIX) app has a
+  single startup entry, so turning it off in a profile can turn it off for your regular Claude too.
 - **Claude in Chrome** pairs with one Claude per computer, and every instance tries to claim it.
   multi-claude keeps it on your regular Claude, in Chrome, Edge, Brave and Chromium, while profiles
   run. `multi-claude doctor` shows the pairing.
@@ -107,11 +113,9 @@ regular Claude in charge of them:
   same tooltip. The taskbar buttons and launchers are the ones that tell profiles apart.
 - **Notifications** from a profile show up as "Claude", and clicking one may bring up your regular
   Claude.
-- **Cowork on Windows** runs in one profile at a time, because Windows allows one Cowork VM per user.
+- **Cowork on Windows** runs in one profile at a time: Claude runs one Cowork VM per Windows user.
 - **macOS Dock:** the colored icon belongs to the profile's launcher. While a profile runs, the Dock
   shows Claude's own icon, because the running app is Claude itself.
-
-More: [how it works](docs/how-it-works.md) · [troubleshooting](docs/troubleshooting.md)
 
 ## Uninstall
 
@@ -125,5 +129,5 @@ folders to sign out for good.
 
 ---
 
-<sub>multi-claude is an independent project, not affiliated with or endorsed by Anthropic. Claude is
-a trademark of Anthropic. [MIT License](LICENSE).</sub>
+<sub>multi-claude is an independent, unofficial project, not affiliated with or endorsed by Anthropic.
+Claude and Anthropic are trademarks of Anthropic, PBC. [MIT License](LICENSE).</sub>

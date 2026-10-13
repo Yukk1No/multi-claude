@@ -30,14 +30,15 @@ from the checkout on macOS and Linux.
 ## Guidelines
 
 - Keep the three CLIs in step: same commands, options, messages and exit codes
-  (`0` ok, `1` failure, `3` wrong context, `64` bad usage).
+  (`0` ok, `1` failure, `64` bad usage, and on Windows `3` for a terminal inside an app package).
 - Never add Claude artwork to the repository; icons are generated on the user's computer.
 - When you change how profiles launch or how the taskbar behaves, test on a real machine and say
   which one in the pull request.
 
 ## Releasing
 
-1. Move the `[Unreleased]` notes in `CHANGELOG.md` under a new version heading.
+1. Move the `[Unreleased]` notes in `CHANGELOG.md` under a new heading such as
+   `## [0.2.0] - 2026-11-01`, and update the compare links at the bottom.
 2. Set the same version in `src/windows/multi-claude.ps1`, `src/macos/multi-claude` and
    `src/linux/multi-claude`.
 3. Push a tag such as `v0.2.0`. The release workflow runs the tests, checks the versions, stamps the

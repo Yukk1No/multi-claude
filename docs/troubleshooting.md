@@ -9,8 +9,8 @@ On Windows, open a new terminal: the PATH change applies to new windows. On macO
 
 **A profile signed in to the wrong account.**
 The browser sent the `claude://` sign-in link to the other Claude. In the profile, sign out and sign in
-again with **Sign in with a code**. With single sign-on, quit every other Claude first (on Windows,
-also from the tray icon).
+again with **Sign in with a code**. With single sign-on, quit every other Claude first, including other
+profiles (on Windows, also from the tray).
 
 **Claude in Chrome talks to the wrong account.**
 The browser pairs with the Claude that registered last. Opening a profile through its multi-claude
@@ -44,8 +44,12 @@ Run `multi-claude add <name> --color <color>` again to rebuild it, then remove i
 add it again.
 
 **Linux: Claude Desktop was not found.**
-multi-claude looks for the official desktop entry named `Claude`. `multi-claude doctor` shows what
-it found.
+multi-claude looks for the official desktop entry named `Claude` or `Claude Desktop`.
+`multi-claude doctor` shows what it found.
+
+**Claude closed by itself while a profile was open.**
+An idle Claude can install an app update, and updating closes every Claude window. Quit the profiles
+you are not using.
 
 **Sign a profile out for good.**
 Run `multi-claude remove <name>`, then delete the data folder it prints.

@@ -12,14 +12,17 @@ exit_is() { zsh "$cli" "${@:2}" >/dev/null 2>&1; [[ $? -eq $1 ]]; }
 print macos
 check 'script parses'                       'zsh -n "$cli"'
 check 'help exits 0'                        'exit_is 0 help'
+check 'commands ignore case'                'exit_is 0 HELP'
 check 'version works in any position'       'exit_is 0 add -v'
 check 'unknown command exits 64'            'exit_is 64 frobnicate'
 check 'unknown option exits 64'             'exit_is 64 add Work --bogus'
 check 'invalid name exits 64'               'exit_is 64 add "a b"'
+check 'reserved name exits 64'              'exit_is 64 add 3p'
 check 'invalid color exits 64'              'exit_is 64 add Work --color banana'
 check 'missing color exits 64'              'exit_is 64 add Work --color'
 check 'extra argument exits 64'             'exit_is 64 add Work extra'
 check 'removing an unknown profile exits 1' 'exit_is 1 remove NoSuchProfile'
+check 'opening an unknown profile exits 1'  'exit_is 1 open NoSuchProfile'
 
 # Recolor a synthetic orange PNG and check that the background lands near the target hue.
 python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import recolor; \
@@ -47,6 +50,9 @@ check 'doctor shows a profile holding the pairing' 'grep -q "Chrome: profile Wor
 check 'pairing goes back to the regular Claude'   'HOME=$home zsh "$cli" _repair-pairing && grep -qF "\"path\": \"$main_host\"" "$chrome"'
 rm "$main_host"; manifest "$profile_host" > "$chrome"
 check 'pairing is left alone if the regular Claude never paired' 'HOME=$home zsh "$cli" _repair-pairing && grep -qF "\"path\": \"$profile_host\"" "$chrome"'
+odd_host="$tmp/Claude-Ops/home/Claude/ChromeNativeHost/chrome-native-host"   # a "Claude-" folder above the regular one
+manifest "$odd_host" > "$chrome"
+check 'a Claude- folder elsewhere in the path is not a profile' 'grep -q "Chrome: regular Claude" <<<"$(HOME=$home zsh "$cli" doctor)"'
 
 (( failed == 0 )) && print 'all tests passed'
 exit $failed

@@ -31,7 +31,10 @@ fail()        { print -u2 -- "$1"; exit "${2:-1}"; }
 data_dir()    { print -- "$HOME/Library/Application Support/Claude-$1"; }
 launcher()    { print -- "$APPS/Claude $1.app"; }
 is_running()  { pgrep -f -- "--user-data-dir=$(data_dir "$1")( |\$)" >/dev/null; }
-check_name()  { [[ $1 =~ '^[A-Za-z0-9-]{1,24}$' ]] || fail "Profile name: letters, digits and dashes, up to 24 characters (e.g. Work)." 64; }
+check_name() {
+  [[ $1 =~ '^[A-Za-z0-9-]{1,24}$' ]] || fail "Profile name: letters, digits and dashes, up to 24 characters (e.g. Work)." 64
+  [[ ${1:l} != 3p ]] || fail "The name '3p' is reserved: Claude uses that folder itself." 64
+}
 need_claude() { [[ -d $CLAUDE_APP ]] || fail "$NOT_FOUND"; }
 
 profiles() {
@@ -44,47 +47,60 @@ profiles() {
 
 # Claude in Chrome: each browser keeps one manifest naming the Claude it talks to, and every Claude
 # instance writes its own data folder into it. Keep it on the regular Claude.
-BROWSERS=("Google/Chrome" "Microsoft Edge" "BraveSoftware/Brave-Browser" "Chromium")
-manifest_of() { print -- "$HOME/Library/Application Support/$1/NativeMessagingHosts/com.anthropic.claude_browser_extension.json"; }
+BROWSERS=("Chrome:Google/Chrome" "Edge:Microsoft Edge" "Brave:BraveSoftware/Brave-Browser" "Chromium:Chromium")
+PROFILE_HOST='/Claude-([^/]+)/ChromeNativeHost/'
+manifest_of() { print -- "$HOME/Library/Application Support/${1#*:}/NativeMessagingHosts/com.anthropic.claude_browser_extension.json"; }
 host_path()   { sed -n 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | head -n1; }
+main_path()   { sed -E "s#$PROFILE_HOST#/Claude/ChromeNativeHost/#g"; }
+
+# The profile holding a host path, if any ("Claude-3p" is Claude's own folder, not a profile).
+held_by() { [[ $1 =~ $PROFILE_HOST && ${match[1]:l} != 3p ]] && print -- "${match[1]}"; }
 
 repair_pairing() {
-  local browser manifest main
+  local browser manifest main tmp
   for browser in $BROWSERS; do
     manifest=$(manifest_of "$browser")
     [[ -f $manifest ]] || continue
-    main=$(host_path "$manifest" | sed -E 's#/Claude-[A-Za-z0-9-]+/#/Claude/#')
-    # Only when a profile holds it, and the regular Claude has a host to point back to.
-    if [[ $main != "$(host_path "$manifest")" && -e $main ]]; then
-      sed -E 's#/Claude-[A-Za-z0-9-]+/#/Claude/#g' "$manifest" > "$manifest.tmp" && mv "$manifest.tmp" "$manifest"
-    fi
+    held_by "$(host_path "$manifest")" >/dev/null || continue
+    main=$(host_path "$manifest" | main_path)
+    [[ -e $main ]] || continue                 # the regular Claude has no host to point back to
+    tmp=$(mktemp "$manifest.XXXXXX") && main_path < "$manifest" > "$tmp" && mv "$tmp" "$manifest"
   done
 }
 
 pairing() {
-  local browser manifest out=""
+  local browser manifest holder out=""
   for browser in $BROWSERS; do
     manifest=$(manifest_of "$browser")
     [[ -f $manifest ]] || continue
-    if [[ $(host_path "$manifest") =~ '/Claude-([A-Za-z0-9-]+)/' ]]; then
-      out+="${browser:t}: profile ${match[1]}, "
+    if holder=$(held_by "$(host_path "$manifest")"); then
+      out+="${browser%%:*}: profile $holder, "
     else
-      out+="${browser:t}: regular Claude, "
+      out+="${browser%%:*}: regular Claude, "
     fi
   done
   if [[ -n $out ]]; then print -- "${out%, }"; else print "not set up"; fi
 }
 
 # Started by `open` in the background: keeps the pairing on the regular Claude while the profile
-# runs, then exits. One per profile.
+# runs, then exits. One per profile: a lock folder holds the watcher's pid.
+is_guard() {
+  local args
+  [[ -n $1 ]] || return 1
+  if args=$(ps -p "$1" -o args= 2>/dev/null); then [[ $args == *" _guard "* ]]; else kill -0 "$1" 2>/dev/null; fi
+}
 cmd_guard() {
-  local name=$1 waited=0
+  local name=$1 waited=0 owner
   GUARD_LOCK=${TMPDIR:-/tmp}/multi-claude-$name.lock
   if ! mkdir "$GUARD_LOCK" 2>/dev/null; then
-    if kill -0 "$(cat "$GUARD_LOCK/pid" 2>/dev/null)" 2>/dev/null; then return 0; fi
-    rm -rf "$GUARD_LOCK"; mkdir "$GUARD_LOCK" || return 0
+    sleep 1                                   # let a watcher that just took the lock write its pid
+    owner=$(cat "$GUARD_LOCK/pid" 2>/dev/null || true)
+    if is_guard "$owner"; then return 0; fi
+    # No pid yet: busy, unless the lock is a minute old (its watcher died before writing it).
+    if [[ -z $owner && -z $(find "$GUARD_LOCK" -maxdepth 0 -mmin +1 2>/dev/null) ]]; then return 0; fi
+    rm -rf "$GUARD_LOCK"; mkdir "$GUARD_LOCK" 2>/dev/null || return 0
   fi
-  print $$ > "$GUARD_LOCK/pid"
+  print $$ > "$GUARD_LOCK/pid.tmp" && mv "$GUARD_LOCK/pid.tmp" "$GUARD_LOCK/pid"
   trap 'rm -rf "$GUARD_LOCK"' EXIT
   while ! is_running "$name" && (( waited++ < 60 )); do sleep 1; done
   while is_running "$name"; do repair_pairing; sleep 3; done
@@ -101,10 +117,12 @@ canonical() {
 }
 
 cmd_add() {
-  local name=$1 color=$2 hex
+  local name=$1 color=$2 hex existing
   check_name "$name"
   hex=${PALETTE[${color:l}]:-${color#\#}}
   [[ $hex =~ '^[0-9A-Fa-f]{6}$' ]] || fail "Unknown color '$color'. Use ${(j:, :)COLORS} or a hex value like C0392B." 64
+  existing=$(canonical "$name")
+  [[ $existing == "$name" ]] || fail "A profile named '$existing' already exists; names are not case-sensitive." 64
   need_claude
 
   local work; work=$(mktemp -d)
@@ -125,23 +143,25 @@ cmd_add() {
   done
   iconutil -c icns "$work/icon.iconset" -o "$work/icon.icns"
 
-  # Launcher: opens the official Claude.app with this profile's own data folder.
-  local app plist
-  app=$(launcher "$name"); plist="$app/Contents/Info.plist"
-  mkdir -p "$APPS"; rm -rf "$app"
-  osacompile -o "$app" -e "do shell script quoted form of \"$HERE/multi-claude\" & \" open \" & quoted form of \"$name\""
-  cp "$work/icon.icns" "$app/Contents/Resources/applet.icns"
+  # Launcher: runs `multi-claude open <name>`. Built aside, then swapped in, so a failure keeps the old one.
+  local app built plist script=${HERE//\\/\\\\}/multi-claude
+  script=${script//\"/\\\"}                                     # escaped for an AppleScript string
+  app=$(launcher "$name"); built="$work/Claude $name.app"; plist="$built/Contents/Info.plist"
+  osacompile -o "$built" -e "do shell script quoted form of \"$script\" & \" open \" & quoted form of \"$name\""
+  cp "$work/icon.icns" "$built/Contents/Resources/applet.icns"
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true   # it would override applet.icns
-  rm -f "$app/Contents/Resources/Assets.car"
+  rm -f "$built/Contents/Resources/Assets.car"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_PREFIX.$name" "$plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleName Claude $name" "$plist" 2>/dev/null || true
-  codesign --force -s - "$app" >/dev/null 2>&1 || true   # resources changed: re-sign ad hoc, locally
+  codesign --force -s - "$built" >/dev/null 2>&1 || true   # resources changed: re-sign ad hoc, locally
+  mkdir -p "$APPS"; rm -rf "$app"; mv "$built" "$app"
   touch "$app"
 
   print "
   Claude $name is ready: $app
-  Drag it to the Dock. To sign in, choose \"Sign in with a code\". With single sign-on, quit the
-  regular Claude first (Cmd+Q): the browser hands the login to whichever Claude is open."
+  Drag it to the Dock. To sign in, choose \"Sign in with a code\". With single sign-on, quit every
+  other Claude first (Cmd+Q), including other profiles: the browser hands the login to whichever
+  Claude is open."
 }
 
 cmd_list() {
@@ -155,7 +175,9 @@ cmd_list() {
 }
 
 cmd_open() {
-  check_name "$1"; need_claude
+  check_name "$1"
+  [[ -d $(launcher "$1") ]] || fail "No profile named '$1'."
+  need_claude
   repair_pairing
   open -n -a "$CLAUDE_APP" --args --user-data-dir="$(data_dir "$1")"
   "$HERE/multi-claude" _guard "$1" >/dev/null 2>&1 &!
@@ -212,7 +234,7 @@ while (( $# )); do
   shift
 done
 
-case $cmd in
+case ${cmd:l} in
   add)       cmd_add "$name" "$color" ;;
   list)      cmd_list ;;
   open)      check_name "$name"; cmd_open "$(canonical "$name")" ;;

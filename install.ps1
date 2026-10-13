@@ -45,6 +45,7 @@
                     'DownArrow' { $index = ($index + 1) % $names.Count }
                     'Enter'     {
                         if ($names[$index] -ne 'custom hex...') { return $names[$index] }
+                        [Console]::CursorVisible = $true
                         $typed = Read-Host 'Hex color (e.g. C0392B)'
                         if ($typed) { return $typed } else { return 'green' }
                     }
@@ -56,6 +57,9 @@
 
     if (-not (Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue)) {
         return Show-Failure 'Claude Desktop was not found. Install it from https://claude.ai/download'
+    }
+    if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+        return Show-Failure "PowerShell runs in $($ExecutionContext.SessionState.LanguageMode) mode here (usually a company policy), so multi-claude can't work on this PC."
     }
     # Inside an app package (e.g. a terminal opened from Claude Desktop) Windows redirects these writes.
     $packaged = try {
@@ -92,10 +96,12 @@
             '@echo off'
             'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\app\multi-claude.ps1" %*'
         )
-        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if (($userPath -split ';') -notcontains $bin) {
-            [Environment]::SetEnvironmentVariable('Path', (@($userPath, $bin) | Where-Object { $_ }) -join ';', 'User')
-        }
+        # The user PATH is edited as stored, so entries like %USERPROFILE%\... stay variables.
+        try { Add-Type -Path (Join-Path $app 'MultiClaude.cs') -ReferencedAssemblies System.Drawing }
+        catch { return Show-Failure "Could not load multi-claude's Windows helpers (blocked by a security policy?): $($_.Exception.Message)" }
+        $userPath = @([MultiClaude.UserPath]::Get())
+        $present  = $userPath | Where-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -eq $bin }
+        if (-not $present) { [MultiClaude.UserPath]::Set([string[]]($userPath + $bin)) }
         if (($env:Path -split ';') -notcontains $bin) { $env:Path += ";$bin" }
         Write-Host ''
         Write-Host '  multi-claude is installed. Add a profile with: multi-claude add Work --color blue' -ForegroundColor Green

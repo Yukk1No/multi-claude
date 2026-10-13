@@ -23,7 +23,8 @@ shellcheck install.sh src/linux/multi-claude tests/linux.sh
 ## Rules
 
 - The three CLIs (`src/windows`, `src/macos`, `src/linux`) expose the same commands, options, messages
-  and exit codes (`0` ok, `1` failure, `3` wrong context, `64` bad usage). Change them together.
+  and exit codes (`0` ok, `1` failure, `64` bad usage, and on Windows `3` for a terminal inside an app
+  package). Change them together.
 - No runtime dependencies: PowerShell 5.1 + C# 5 on Windows, zsh and built-in tools on macOS, bash and
   `python3` (standard library) on Linux.
 - Never commit Claude artwork, icons generated from it, or anything identifying a user.

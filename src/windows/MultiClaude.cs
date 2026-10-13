@@ -3,6 +3,8 @@
 //   Shortcut stamp the same AppUserModelID on a .lnk
 //   Icon     recolor the installed Claude logo and write a multi-size .ico
 //   Package  tell whether we run inside an MSIX package context (where AppData writes are redirected)
+//   UserPath read and write the user's PATH without expanding %VARIABLES%
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -179,6 +181,29 @@ namespace MultiClaude {
         public static bool IsPackaged() {
             int length = 0;
             return GetCurrentPackageFullName(ref length, null) != APPMODEL_ERROR_NO_PACKAGE;
+        }
+    }
+
+    public static class UserPath {
+        const uint WM_SETTINGCHANGE = 0x1A, SMTO_ABORTIFHUNG = 2;
+        static readonly IntPtr HWND_BROADCAST = (IntPtr)0xffff;
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, string lParam, uint flags, uint timeout, out IntPtr result);
+
+        // Entries as stored, so "%USERPROFILE%\..." stays a variable instead of today's value.
+        public static string[] Get() {
+            using (var key = Registry.CurrentUser.OpenSubKey("Environment")) {
+                var value = key == null ? null : key.GetValue("Path", "", RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+                return (value ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            }
+        }
+
+        // Writes the PATH back as an expandable string and tells running programs about it.
+        public static void Set(string[] entries) {
+            using (var key = Registry.CurrentUser.CreateSubKey("Environment"))
+                key.SetValue("Path", string.Join(";", entries), RegistryValueKind.ExpandString);
+            IntPtr ignored;
+            SendMessageTimeout(HWND_BROADCAST, WM_SETTINGCHANGE, IntPtr.Zero, "Environment", SMTO_ABORTIFHUNG, 5000, out ignored);
         }
     }
 

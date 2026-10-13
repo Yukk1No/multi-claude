@@ -52,9 +52,12 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 
 # --- helpers -----------------------------------------------------------------------------------------
 # Validates the name and adopts an existing profile's spelling, so `open work` finds profile "Work".
-function Assert-Name {
+# For a new profile, a name that differs from an existing one only by case is refused.
+function Assert-Name([switch]$New) {
     if ($Name -notmatch '^[A-Za-z0-9-]{1,24}$') { Fail 'Profile name: letters, digits and dashes, up to 24 characters (e.g. Work).' 64 }
+    if ($Name -eq '3p') { Fail "The name '3p' is reserved: Claude uses that folder itself." 64 }
     $existing = Get-ProfileName | Where-Object { $_ -eq $Name }   # -eq ignores case
+    if ($existing -and $New -and $existing -cne $Name) { Fail "A profile named '$existing' already exists; names are not case-sensitive." 64 }
     if ($existing) { $script:Name = $existing }
 }
 function Get-DataDir([string]$n)    { Join-Path $env:LOCALAPPDATA "Claude-$n" }
@@ -84,28 +87,46 @@ function Get-ClaudeMainProcess {
         Where-Object { $_.ExecutablePath -like '*\WindowsApps\Claude_*' -and $_.CommandLine -notmatch '--type=' })
 }
 
-# Claude in Chrome: browsers find Claude through one registry entry per user, and every Claude
+# Claude in Chrome: each browser finds Claude through one registry entry per user, and every Claude
 # instance writes its own data folder there. Keep it pointing at the regular Claude.
-$ChromeHostKeys = 'Google\Chrome', 'Microsoft\Edge', 'BraveSoftware\Brave-Browser', 'Chromium' |
-    ForEach-Object { "HKCU:\Software\$_\NativeMessagingHosts\com.anthropic.claude_browser_extension" }
+$Browsers = [ordered]@{
+    Chrome = 'Google\Chrome'; Edge = 'Microsoft\Edge'; Brave = 'BraveSoftware\Brave-Browser'; Chromium = 'Chromium'
+}
+function Get-BrowserKey([string]$browser) { "HKCU:\Software\$($Browsers[$browser])\NativeMessagingHosts\com.anthropic.claude_browser_extension" }
 $ProfileHostPath = '\\Claude-([A-Za-z0-9-]+)\\ChromeNativeHost\\'
-function Get-MainChromeHost { Join-Path $env:APPDATA 'Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json' }
 
-function Repair-ChromePairing {
-    $main = Get-MainChromeHost
-    $package = Get-ClaudePackage
-    $mirrored = if ($package) { Join-Path $env:LOCALAPPDATA "Packages\$($package.PackageFamilyName)\LocalCache\Roaming\Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json" }
-    if (-not ((Test-Path $main) -or ($mirrored -and (Test-Path $mirrored)))) { return }   # regular Claude never paired
-    foreach ($key in $ChromeHostKeys) {
-        if ((Test-Path $key) -and ((Get-Item $key).GetValue('') -match $ProfileHostPath)) { Set-Item -Path $key -Value $main }
+# The regular Claude's own manifest, as Claude itself registers it: the Store app keeps it in its
+# package's redirected AppData, other installs in %APPDATA%. $null if it never paired with a browser.
+function Get-MainChromeHost {
+    $relative = 'Claude\ChromeNativeHost\com.anthropic.claude_browser_extension.json'
+    $package  = Get-ClaudePackage
+    $candidates = @(
+        $(if ($package) { Join-Path $env:LOCALAPPDATA "Packages\$($package.PackageFamilyName)\LocalCache\Roaming\$relative" })
+        (Join-Path $env:APPDATA $relative)
+    )
+    $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+}
+
+# The profile whose manifest a browser points at, if any ("Claude-3p" is Claude's own folder).
+function Get-PairingHolder([string]$browser) {
+    $key = Get-BrowserKey $browser
+    if ((Test-Path $key) -and ((Get-Item $key).GetValue('') -match $ProfileHostPath) -and $Matches[1] -ne '3p') { $Matches[1] }
+}
+
+# Points every browser a profile has taken back at the regular Claude.
+function Repair-ChromePairing([string]$mainHost) {
+    if (-not $mainHost) { return }
+    foreach ($browser in $Browsers.Keys) {
+        if (Get-PairingHolder $browser) { Set-Item -Path (Get-BrowserKey $browser) -Value $mainHost }
     }
 }
 
-# "Chrome: regular Claude", "Edge: profile Work"... for each browser that has the pairing.
+# "Chrome: regular Claude, Edge: profile Work" for each browser that has the pairing.
 function Get-ChromePairing {
-    $pairs = foreach ($key in $ChromeHostKeys | Where-Object { Test-Path $_ }) {
-        $browser = ($key -split '\\')[-3]
-        if ((Get-Item $key).GetValue('') -match $ProfileHostPath) { "${browser}: profile $($Matches[1])" } else { "${browser}: regular Claude" }
+    $pairs = foreach ($browser in $Browsers.Keys) {
+        if (-not (Test-Path (Get-BrowserKey $browser))) { continue }
+        $holder = Get-PairingHolder $browser
+        if ($holder) { "${browser}: profile $holder" } else { "${browser}: regular Claude" }
     }
     if ($pairs) { $pairs -join ', ' } else { 'not set up' }
 }
@@ -120,7 +141,7 @@ function Get-OpenArgument([string]$n) {
 
 # --- commands ----------------------------------------------------------------------------------------
 function Invoke-Add {
-    Assert-Name
+    Assert-Name -New
     $hex = if ($Palette.Contains($Color.ToLower())) { $Palette[$Color.ToLower()] } else { $Color.TrimStart('#') }
     if ($hex -notmatch '^[0-9A-Fa-f]{6}$') { Fail "Unknown color '$Color'. Use $($Palette.Keys -join ', ') or a hex value like C0392B." 64 }
     $package = Get-ClaudePackage
@@ -156,8 +177,8 @@ function Invoke-Add {
     Say ''
     Say "  Claude $Name is ready." Green
     Say '  Open it from the Start menu, then right-click its taskbar button > Pin to taskbar.'
-    Say '  To sign in, choose "Sign in with a code". With single sign-on, quit the regular Claude first:'
-    Say '  the browser hands the login to whichever Claude is open.'
+    Say '  To sign in, choose "Sign in with a code". With single sign-on, quit every other Claude first,'
+    Say '  including other profiles (also from the tray): the browser hands the login to whichever Claude is open.'
 }
 
 function Invoke-List {
@@ -178,13 +199,14 @@ function Invoke-Remove {
     $shortcut = Get-Shortcut $Name
     if (Test-Path $shortcut) { Remove-Item -LiteralPath $shortcut -Force }
     Remove-Item -LiteralPath $dir -Recurse -Force
-    Repair-ChromePairing
+    Repair-ChromePairing (Get-MainChromeHost)
     Say "Removed Claude $Name. Unpin its taskbar button if pinned."
     Say "Its sign-in data is kept in $(Get-DataDir $Name) - delete that folder to sign out for good."
 }
 
 function Invoke-Open {
     Assert-Name
+    if (-not (Test-Path (Get-ProfileDir $Name))) { Fail "No profile named '$Name'." }
     $id       = "MultiClaude.$Name"
     $ico      = Join-Path (Get-ProfileDir $Name) 'icon.ico'
     $log      = Join-Path (Get-ProfileDir $Name) 'open.log'
@@ -197,8 +219,9 @@ function Invoke-Open {
     # Started from inside a Claude session, we would hand its CLAUDE_*/ANTHROPIC_* variables to Claude.
     Get-ChildItem Env: | Where-Object Name -Match '^(CLAUDE|ANTHROPIC)' | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
     if (-not (Test-Path (Get-LaunchAlias))) { Write-Log $NotFound; Fail $NotFound }
-    Repair-ChromePairing
     Start-Process -FilePath (Get-LaunchAlias) -ArgumentList ('--user-data-dir="{0}"' -f (Get-DataDir $Name))
+    $mainHost = Get-MainChromeHost; $lastLookup = Get-Date
+    Repair-ChromePairing $mainHost
 
     $isFirst = $false
     $mutex = New-Object System.Threading.Mutex($true, "Local\MultiClaude-$Name", [ref]$isFirst)
@@ -214,7 +237,9 @@ function Invoke-Open {
             }
             if ($pids) {
                 $goneSince = $null
-                try { Repair-ChromePairing } catch { Write-Log "keeping Claude in Chrome paired failed: $($_.Exception.Message)" }
+                # The regular Claude may pair with a browser only after this profile opened.
+                if (-not $mainHost -and ((Get-Date) - $lastLookup).TotalSeconds -gt 30) { $mainHost = Get-MainChromeHost; $lastLookup = Get-Date }
+                try { Repair-ChromePairing $mainHost } catch { Write-Log "keeping Claude in Chrome paired failed: $($_.Exception.Message)" }
                 foreach ($hwnd in [MultiClaude.Window]::Of([uint32[]]$pids)) {
                     try {
                         if ([MultiClaude.Window]::GetId($hwnd) -ne $id) {
@@ -231,7 +256,7 @@ function Invoke-Open {
             Start-Sleep -Milliseconds $(if ($elapsed -lt 30) { 300 } else { 2000 })
         }
     } finally {
-        Repair-ChromePairing
+        Repair-ChromePairing $mainHost
         $mutex.ReleaseMutex(); $mutex.Dispose()
     }
 }
@@ -280,13 +305,11 @@ function Invoke-Uninstall {
     Import-Interop
     Assert-NotPackaged
     foreach ($p in Get-ProfileName) { $s = Get-Shortcut $p; if (Test-Path $s) { Remove-Item -LiteralPath $s -Force } }
-    Repair-ChromePairing
+    Repair-ChromePairing (Get-MainChromeHost)
     $bin  = Join-Path $Root 'bin'
-    $path = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($path) {
-        $kept = ($path -split ';' | Where-Object { $_ -and $_.TrimEnd('\') -ne $bin }) -join ';'
-        if ($kept -ne $path) { [Environment]::SetEnvironmentVariable('Path', $kept, 'User') }
-    }
+    $path = [MultiClaude.UserPath]::Get()
+    $kept = @($path | Where-Object { [Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ne $bin })
+    if ($kept.Count -ne $path.Count) { [MultiClaude.UserPath]::Set([string[]]$kept) }
     # The multi-claude.cmd running this command lives in $Root, and cmd.exe fails if its batch file
     # vanishes mid-run: delete the folder a moment after we exit.
     if (Test-Path $Root) {
