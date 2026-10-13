@@ -211,14 +211,14 @@ function Invoke-Open {
     $ico      = Join-Path (Get-ProfileDir $Name) 'icon.ico'
     $log      = Join-Path (Get-ProfileDir $Name) 'open.log'
     $relaunch = '"{0}" {1}' -f (Join-Path $env:windir 'System32\conhost.exe'), (Get-OpenArgument $Name)
-    function Write-Log([string]$text) {
+    function Write-OpenLog([string]$text) {
         if ((Test-Path $log) -and (Get-Item $log).Length -gt 256KB) { Remove-Item $log -Force -ErrorAction SilentlyContinue }
         Add-Content -LiteralPath $log -Value ('{0:yyyy-MM-dd HH:mm:ss} {1}' -f (Get-Date), $text) -ErrorAction SilentlyContinue
     }
 
     # Started from inside a Claude session, we would hand its CLAUDE_*/ANTHROPIC_* variables to Claude.
     Get-ChildItem Env: | Where-Object Name -Match '^(CLAUDE|ANTHROPIC)' | ForEach-Object { Remove-Item -LiteralPath "Env:$($_.Name)" }
-    if (-not (Test-Path (Get-LaunchAlias))) { Write-Log $NotFound; Fail $NotFound }
+    if (-not (Test-Path (Get-LaunchAlias))) { Write-OpenLog $NotFound; Fail $NotFound }
     Start-Process -FilePath (Get-LaunchAlias) -ArgumentList ('--user-data-dir="{0}"' -f (Get-DataDir $Name))
     $mainHost = Get-MainChromeHost; $lastLookup = Get-Date
     Repair-ChromePairing $mainHost
@@ -239,14 +239,14 @@ function Invoke-Open {
                 $goneSince = $null
                 # The regular Claude may pair with a browser only after this profile opened.
                 if (-not $mainHost -and ((Get-Date) - $lastLookup).TotalSeconds -gt 30) { $mainHost = Get-MainChromeHost; $lastLookup = Get-Date }
-                try { Repair-ChromePairing $mainHost } catch { Write-Log "keeping Claude in Chrome paired failed: $($_.Exception.Message)" }
+                try { Repair-ChromePairing $mainHost } catch { Write-OpenLog "keeping Claude in Chrome paired failed: $($_.Exception.Message)" }
                 foreach ($hwnd in [MultiClaude.Window]::Of([uint32[]]$pids)) {
                     try {
                         if ([MultiClaude.Window]::GetId($hwnd) -ne $id) {
                             [MultiClaude.Window]::Tag($hwnd, $id, $relaunch, "Claude $Name", $ico)
-                            Write-Log "tagged window $hwnd"
+                            Write-OpenLog "tagged window $hwnd"
                         }
-                    } catch { Write-Log "tagging window $hwnd failed: $($_.Exception.Message)" }
+                    } catch { Write-OpenLog "tagging window $hwnd failed: $($_.Exception.Message)" }
                 }
             } else {
                 if (-not $goneSince) { $goneSince = Get-Date }

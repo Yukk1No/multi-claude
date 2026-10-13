@@ -51,7 +51,8 @@ jobs:
           (cd dist && sha256sum multi-claude.zip multi-claude.tar.gz install.ps1 install.sh > SHA256SUMS)
 
       - name: Release notes from the changelog
-        run: awk -v v="${GITHUB_REF_NAME#v}" '$0 ~ "^## \\[" v "\\]" {on=1; next} /^## \[|^\[.*\]: / {on=0} on' CHANGELOG.md > notes.md
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" 'index($0, "## [" v "]") == 1 {on=1; next} /^## \[|^\[.*\]: / {on=0} on' CHANGELOG.md > notes.md
 
       - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
