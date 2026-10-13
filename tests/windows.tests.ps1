@@ -92,3 +92,4 @@ if (Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue) {
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 if ($script:failed) { Write-Host "$script:failed test(s) failed" -ForegroundColor Red; exit 1 }
 Write-Host 'all tests passed' -ForegroundColor Green
+exit 0  # CI exits with $LASTEXITCODE, which the "exits 1" tests leave at 1
