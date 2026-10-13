@@ -16,8 +16,10 @@ button. Like browser profiles, for Claude.
 
 </div>
 
-<!-- Screenshot: the taskbar with two or three colored profile buttons pinned next to Claude.
-     Add it as assets/taskbar.png and show it here. -->
+<p align="center">
+  <img src="assets/taskbar.png" width="278" alt="Windows taskbar with three Claude buttons: the regular orange Claude, a blue Work profile and a green Personal profile">
+  <br><sub>The regular Claude, a Work profile and a Personal profile, each with its own taskbar button.</sub>
+</p>
 
 Claude Desktop signs in to one account at a time. multi-claude adds **profiles**: each profile is the
 official app opened with its own data folder, so it keeps its own login. Open them side by side, pin
